@@ -7,8 +7,7 @@ st.set_page_config(page_title="Oficina Caruaru", layout="wide")
 
 URL = st.secrets["TURSO_URL"]
 TOKEN = st.secrets["TURSO_TOKEN"]
-conn = libsql.connect(database=URL, authToken=TOKEN)
-cur = conn.cursor()
+conn = libsql.connect(database=URL, auth_token=TOKEN)
 cur.execute("CREATE TABLE IF NOT EXISTS clientes (id INTEGER PRIMARY KEY AUTOINCREMENT, nome TEXT, telefone TEXT, moto TEXT)")
 cur.execute("CREATE TABLE IF NOT EXISTS servicos (id INTEGER PRIMARY KEY AUTOINCREMENT, cliente TEXT, telefone TEXT, descricao TEXT, valor REAL, data_entrada TEXT, data_revisao TEXT, status TEXT)")
 
