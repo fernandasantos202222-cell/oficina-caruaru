@@ -1,27 +1,12 @@
-import streamlit as st, pandas as pd, re, io
+import streamlit as st, pandas as pd, re, io, sqlite3
 from urllib.parse import quote
 from fpdf import FPDF
 from datetime import date
-import libsql
 
 st.set_page_config(page_title="Oficina Caruaru", layout="wide")
 
-URL = st.secrets["TURSO_URL"]
-TOKEN = st.secrets["TURSO_TOKEN"]
-
-@st.cache_resource
-def get_conn():
-    conn = libsql.connect(database=URL, auth_token=TOKEN)
-    conn.execute("CREATE TABLE IF NOT EXISTS clientes (id INTEGER PRIMARY KEY AUTOINCREMENT, nome TEXT, telefone TEXT, moto TEXT)")
-    conn.execute("CREATE TABLE IF NOT EXISTS servicos (id INTEGER PRIMARY KEY AUTOINCREMENT, cliente TEXT, telefone TEXT, descricao TEXT, valor REAL, data_entrada TEXT, status TEXT)")
-    conn.commit()
-    return conn
-
-conn = get_conn()
-
 def limpa(t):
-    n=re.sub(r'\D','',str(t))
-    return n[2:] if n.startswith('55') and len(n)>11 else n
+    n=re.sub(r'\D','',str(t)); return n[2:] if n.startswith('55') and len(n)>11 else n
 
 def pdf_relatorio(df):
     p=FPDF(); p.add_page(); p.set_fill_color(20,20,20); p.rect(0,0,210,30,'F')
@@ -35,45 +20,61 @@ def pdf_relatorio(df):
         p.cell(10,6,str(row['id']),1); p.cell(35,6,str(row['cliente'])[:18],1); p.cell(80,6,str(row['descricao'])[:42],1); p.cell(20,6,f"{float(row['valor']):.2f}",1); p.cell(30,6,str(row['status']),1,1)
     return bytes(p.output())
 
-st.title("🏍️ Oficina Caruaru - Permanente")
+# CONEXAO COM PROTECAO
+try:
+    import libsql
+    URL = st.secrets["TURSO_URL"]
+    TOKEN = st.secrets["TURSO_TOKEN"]
+    @st.cache_resource
+    def get_conn():
+        c = libsql.connect(database=URL, auth_token=TOKEN)
+        c.execute("CREATE TABLE IF NOT EXISTS clientes (id INTEGER PRIMARY KEY AUTOINCREMENT, nome TEXT, telefone TEXT, moto TEXT)")
+        c.execute("CREATE TABLE IF NOT EXISTS servicos (id INTEGER PRIMARY KEY AUTOINCREMENT, cliente TEXT, telefone TEXT, descricao TEXT, valor REAL, data_entrada TEXT, status TEXT)")
+        c.commit()
+        return c
+    conn = get_conn()
+    st.success("✅ Conectado no Turso - dados permanentes!")
+except Exception as e:
+    st.warning(f"⚠️ Erro no Turso ({e}), usando banco temporário. Confere TURSO_URL e TOKEN nos Secrets.")
+    conn = sqlite3.connect("oficina.db", check_same_thread=False)
+    cur = conn.cursor()
+    cur.execute("CREATE TABLE IF NOT EXISTS clientes (id INTEGER PRIMARY KEY AUTOINCREMENT, nome TEXT, telefone TEXT, moto TEXT)")
+    cur.execute("CREATE TABLE IF NOT EXISTS servicos (id INTEGER PRIMARY KEY AUTOINCREMENT, cliente TEXT, telefone TEXT, descricao TEXT, valor REAL, data_entrada TEXT, status TEXT)")
+    conn.commit()
+
+st.title("🏍️ Oficina Caruaru")
 menu=st.sidebar.selectbox("Menu",["Dashboard / Relatorio","Clientes","Novo Servico"])
 
 if menu=="Dashboard / Relatorio":
     rows=conn.execute("SELECT * FROM servicos ORDER BY id DESC").fetchall()
     df=pd.DataFrame(rows,columns=["id","cliente","telefone","descricao","valor","data_entrada","status"]) if rows else pd.DataFrame()
-
     if df.empty:
-        st.info("Nenhum serviço ainda - mas agora é permanente com Turso!")
+        st.info("Nenhum serviço ainda")
     else:
-        # AQUI ESTA O QUE VOCE QUERIA NO DASHBOARD
         c1,c2,c3=st.columns(3)
         c1.metric("💰 Faturamento Total",f"R$ {df['valor'].sum():.2f}")
         c2.metric("🎫 Ticket Medio",f"R$ {df['valor'].mean():.2f}")
         c3.metric("🔧 Qtd Servicos",len(df))
-
         st.dataframe(df,use_container_width=True)
-
         buf=io.BytesIO(); df.to_excel(buf,index=False); buf.seek(0)
         b1,b2=st.columns(2)
         b1.download_button("📥 Baixar Excel Relatorio",buf.getvalue(),f"relatorio_{date.today()}.xlsx",mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",use_container_width=True)
         b2.download_button("📄 Baixar PDF Relatorio",pdf_relatorio(df),f"relatorio_{date.today()}.pdf",mime="application/pdf",use_container_width=True)
-
         st.divider()
-        st.subheader("Histórico - WhatsApp / Editar / Deletar")
+        st.subheader("Histórico - WhatsApp / Deletar / Editar")
         for r in rows:
             with st.expander(f"#{r[0]} {r[1]} - {r[6]} - R$ {float(r[4]):.2f}"):
                 msg=f"Ola {r[1]}! Oficina Caruaru: {r[3]} Valor R$ {float(r[4]):.2f} Status {r[6]}"
                 st.link_button(f"📲 WhatsApp {r[1]}",f"https://wa.me/55{limpa(r[2])}?text={quote(msg)}",use_container_width=True)
-                col1,col2=st.columns(2)
-                if col1.button("🗑️ Deletar",key=f"del{r[0]}"):
+                if st.button("🗑️ Deletar",key=f"del{r[0]}"):
                     conn.execute("DELETE FROM servicos WHERE id=?",(r[0],)); conn.commit(); st.rerun()
-                if col2.button("✏️ Marcar Pronto",key=f"pronto{r[0]}"):
+                if st.button("✏️ Marcar Pronto",key=f"pr{r[0]}"):
                     conn.execute("UPDATE servicos SET status='Pronto' WHERE id=?",(r[0],)); conn.commit(); st.rerun()
 
 elif menu=="Clientes":
     n=st.text_input("Nome"); t=st.text_input("WhatsApp"); m=st.text_input("Moto")
     if st.button("Salvar Cliente",type="primary"):
-        conn.execute("INSERT INTO clientes (nome,telefone,moto) VALUES (?,?,?)",(n,limpa(t),m)); conn.commit(); st.success("Salvo permanente!"); st.rerun()
+        conn.execute("INSERT INTO clientes (nome,telefone,moto) VALUES (?,?,?)",(n,limpa(t),m)); conn.commit(); st.success("Salvo!"); st.rerun()
     rows=conn.execute("SELECT * FROM clientes ORDER BY id DESC").fetchall()
     df=pd.DataFrame(rows,columns=["id","nome","telefone","moto"]) if rows else pd.DataFrame()
     st.dataframe(df,use_container_width=True)
