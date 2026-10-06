@@ -1,5 +1,5 @@
 streamlit
 pandas
 fpdf2
-requests
+libsql-experimental
 openpyxl
