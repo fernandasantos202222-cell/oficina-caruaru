@@ -4,7 +4,7 @@ from datetime import date, timedelta
 import io
 from fpdf import FPDF
 
-# ============ CONEXÃO TURSO ============
+# ============ CONEXÃO ============
 try:
     import libsql
     URL = str(st.secrets["TURSO_URL"]).strip().replace("\n","").replace("\r","").replace(" ","")
@@ -22,9 +22,8 @@ try:
         c.commit()
         return c
     conn = get_conn()
-    st.toast("✅ Turso Conectado", icon="✅")
 except Exception as e:
-    st.warning(f"⚠️ Temporário: {e}")
+    st.warning(f"Temporário: {e}")
     import sqlite3
     conn = sqlite3.connect("oficina.db", check_same_thread=False)
     cur0 = conn.cursor()
@@ -45,28 +44,6 @@ def query_df(sql, params=()):
     except:
         return pd.DataFrame()
 
-# ============ PDF OS CLIENTE ============
-def gerar_pdf_os(os_id, cliente, zap, placa, servico, valor, data_e, status):
-    pdf = FPDF()
-    pdf.add_page()
-    pdf.set_font("Arial", "B", 16)
-    pdf.cell(0, 10, "OFICINA CARUARU - ORDEM DE SERVICO", ln=True, align="C")
-    pdf.set_font("Arial", "", 12)
-    pdf.ln(10)
-    pdf.cell(0, 8, f"OS Nº: {os_id} | Data: {data_e} | Status: {status}", ln=True)
-    pdf.cell(0, 8, f"Cliente: {cliente}", ln=True)
-    pdf.cell(0, 8, f"WhatsApp: {zap} | Placa: {placa}", ln=True)
-    pdf.ln(5)
-    pdf.set_font("Arial", "B", 12)
-    pdf.cell(0, 8, "Descricao do Servico:", ln=True)
-    pdf.set_font("Arial", "", 12)
-    pdf.multi_cell(0, 8, servico)
-    pdf.ln(5)
-    pdf.set_font("Arial", "B", 14)
-    pdf.cell(0, 10, f"Valor: R$ {float(valor):.2f}", ln=True)
-    pdf.ln(10)
-    pdf.set_font("Arial", "", 10)
-    pdf.cell(0, 8, "Assinatura Cliente: ___________________________", ln=True)
 def gerar_pdf_os(os_id, cliente, zap, placa, servico, valor, data_e, status):
     pdf = FPDF()
     pdf.add_page()
@@ -79,70 +56,23 @@ def gerar_pdf_os(os_id, cliente, zap, placa, servico, valor, data_e, status):
     pdf.cell(0, 8, f"WhatsApp: {zap} | Placa: {placa}", new_x="LMARGIN", new_y="NEXT")
     pdf.ln(5)
     pdf.set_font("Arial", "B", 12)
-    pdf.cell(0, 8, "Descricao do Servico:", new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(0, 8, "Descricao:", new_x="LMARGIN", new_y="NEXT")
     pdf.set_font("Arial", "", 12)
     pdf.multi_cell(0, 8, str(servico))
     pdf.ln(5)
     pdf.set_font("Arial", "B", 14)
     pdf.cell(0, 10, f"Valor: R$ {float(valor):.2f}", new_x="LMARGIN", new_y="NEXT")
-    # CORRIGIDO - fpdf2 novo já retorna bytes
     out = pdf.output()
-    if isinstance(out, str):
-        return out.encode('latin-1')
-    return bytes(out)
+    return bytes(out) if not isinstance(out, str) else out.encode('latin-1')
+
 st.set_page_config(page_title="Oficina Caruaru", layout="wide")
 st.title("🏍️ Oficina Caruaru - OS")
 if "edit_id" not in st.session_state: st.session_state.edit_id = None
+if "ultima_os" not in st.session_state: st.session_state.ultima_os = None
+
 menu = st.sidebar.radio("Menu", ["Dashboard", "Nova OS", "Pesquisar / Filtrar", "Clientes", "Backup"])
 
-# ============ AÇÕES COM WHATSAPP E PDF ============
-def acoes_completas(df_origem):
-    st.divider()
-    st.subheader("✏️ Ações - Editar / Deletar / WhatsApp / PDF")
-    if df_origem.empty: return
-    os_sel = st.selectbox("Selecione a OS", df_origem['OS'].tolist(), key=f"sel_{menu}")
-    dados = query_df("SELECT * FROM servicos WHERE id=?", (int(os_sel),))
-    if dados.empty: return
-    d = dados.iloc[0]
-
-    # WHATSAPP LINK
-    zap_limpo = ''.join(filter(str.isdigit, str(d['telefone'])))
-    msg = f"Ola {d['cliente']}! Sua OS #{d['id']} - Moto {d['placa']} - Status: {d['status']} - Valor: R$ {float(d['valor'] or 0):.2f}. Oficina Caruaru"
-    link_zap = f"https://wa.me/55{zap_limpo}?text={msg.replace(' ', '%20')}"
-
-    c1,c2,c3,c4 = st.columns(4)
-    c1.link_button(f"📱 WhatsApp #{os_sel}", link_zap, use_container_width=True)
-
-    # PDF
-    pdf_bytes = gerar_pdf_os(d['id'], d['cliente'], d['telefone'], d['placa'], d['descricao'], d['valor'], d['data_entrada'], d['status'])
-    c2.download_button(f"📄 PDF OS #{os_sel}", pdf_bytes, file_name=f"OS_{os_sel}_{d['cliente']}.pdf", mime="application/pdf", use_container_width=True)
-
-    if c3.button(f"✏️ Editar #{os_sel}", use_container_width=True):
-        st.session_state.edit_id = int(os_sel)
-    if c4.button(f"🗑️ Deletar #{os_sel}", type="primary", use_container_width=True):
-        cur.execute("DELETE FROM servicos WHERE id=?", (int(os_sel),))
-        conn.commit()
-        st.success("Deletada!"); st.rerun()
-
-    if st.session_state.edit_id == int(os_sel):
-        with st.form(f"edit_{os_sel}"):
-            c1,c2 = st.columns(2)
-            nome = c1.text_input("Cliente", value=d['cliente'])
-            zap = c2.text_input("WhatsApp", value=d['telefone'])
-            c3,c4 = st.columns(2)
-            placa = c3.text_input("Placa", value=str(d['placa'] or ""))
-            valor = c4.number_input("Valor", value=float(d['valor'] or 0))
-            desc = st.text_area("Serviço", value=d['descricao'])
-            c5,c6 = st.columns(2)
-            data_e = c5.text_input("Data", value=d['data_entrada'])
-            status = c6.selectbox("Status", ["Aberta","Em andamento","Pronta","Entregue","Cancelada"])
-            if st.form_submit_button("💾 SALVAR"):
-                cur.execute("UPDATE servicos SET cliente=?, telefone=?, descricao=?, valor=?, data_entrada=?, status=?, placa=? WHERE id=?",(nome, zap, desc, valor, data_e, status, placa, int(os_sel)))
-                conn.commit()
-                st.session_state.edit_id=None
-                st.success("Atualizado!"); st.rerun()
-
-# ============ DASHBOARD COM FATURAMENTO E TICKET ============
+# ============ DASHBOARD COM FATURAMENTO E TICKET MEDIO ============
 if menu == "Dashboard":
     df = query_df("SELECT id as OS, data_entrada as Data, cliente as Cliente, telefone as WhatsApp, placa as Placa, descricao as Servico, valor as Valor, status as Status FROM servicos")
     if df.empty:
@@ -154,13 +84,13 @@ if menu == "Dashboard":
         c2.metric("🎫 Ticket Médio", f"R$ {df['Valor'].mean():.2f}")
         c3.metric("🔧 Qtd Serviços", len(df))
         st.dataframe(df.sort_values('OS', ascending=False), use_container_width=True)
-        acoes_completas(df)
 
+# ============ NOVA OS - CORRIGIDO FORA DO FORM ============
 elif menu == "Nova OS":
-    with st.form("os"):
+    with st.form("os_form", clear_on_submit=True):
         c1,c2 = st.columns(2)
         nome = c1.text_input("Cliente*")
-        zap = c2.text_input("WhatsApp* (só números)")
+        zap = c2.text_input("WhatsApp* só números")
         c3,c4 = st.columns(2)
         moto = c3.text_input("Moto")
         placa = c4.text_input("Placa")
@@ -169,19 +99,29 @@ elif menu == "Nova OS":
         valor = c5.number_input("Valor R$", min_value=0.0, step=10.0)
         data_os = c6.date_input("Data", value=date.today())
         status = c7.selectbox("Status", ["Aberta","Em andamento","Pronta","Entregue","Cancelada"])
-        if st.form_submit_button("💾 Salvar OS"):
+        salvar = st.form_submit_button("💾 Salvar OS")
+        if salvar and nome and desc:
             cur.execute("INSERT INTO servicos (cliente, telefone, descricao, valor, data_entrada, status, placa) VALUES (?,?,?,?,?,?,?)",(nome, zap, desc, valor, str(data_os), status, placa))
             cur.execute("INSERT INTO clientes (nome, telefone, moto, placa) VALUES (?,?,?,?)",(nome, zap, moto, placa))
             conn.commit()
-            new_id = cur.lastrowid
-            st.success(f"OS #{new_id} criada!")
-            # Já gera whatsapp e pdf na hora
-            zap_limpo = ''.join(filter(str.isdigit, zap))
-            msg = f"Ola {nome}! Sua OS #{new_id} foi aberta - Moto {placa} - Valor R$ {valor:.2f}. Oficina Caruaru"
-            link_zap = f"https://wa.me/55{zap_limpo}?text={msg.replace(' ', '%20')}"
-            st.link_button("📱 Enviar WhatsApp pro Cliente", link_zap)
-            pdf_bytes = gerar_pdf_os(new_id, nome, zap, placa, desc, valor, str(data_os), status)
-            st.download_button("📄 Baixar PDF da OS pro Cliente", pdf_bytes, file_name=f"OS_{new_id}.pdf", mime="application/pdf")
+            st.session_state.ultima_os = {
+                "id": cur.lastrowid, "cliente": nome, "zap": zap, "placa": placa,
+                "desc": desc, "valor": valor, "data": str(data_os), "status": status
+            }
+            st.success(f"OS #{cur.lastrowid} criada!")
+
+    # AQUI FORA DO FORM - AGORA FUNCIONA
+    if st.session_state.ultima_os:
+        o = st.session_state.ultima_os
+        st.divider()
+        st.subheader(f"Ações da OS #{o['id']}")
+        zap_limpo = ''.join(filter(str.isdigit, o['zap']))
+        msg = f"Ola {o['cliente']}! Sua OS #{o['id']} Moto {o['placa']} Status {o['status']} Valor R$ {o['valor']:.2f} - Oficina Caruaru"
+        link_zap = f"https://wa.me/55{zap_limpo}?text={msg.replace(' ', '%20')}"
+        c1,c2 = st.columns(2)
+        c1.link_button("📱 Enviar WhatsApp pro Cliente", link_zap, use_container_width=True)
+        pdf_bytes = gerar_pdf_os(o['id'], o['cliente'], o['zap'], o['placa'], o['desc'], o['valor'], o['data'], o['status'])
+        c2.download_button("📄 Baixar PDF da OS pro Cliente", pdf_bytes, file_name=f"OS_{o['id']}_{o['cliente']}.pdf", mime="application/pdf", use_container_width=True)
 
 elif menu == "Pesquisar / Filtrar":
     df = query_df("SELECT id as OS, data_entrada as Data, cliente as Cliente, telefone as WhatsApp, placa as Placa, descricao as Servico, valor as Valor, status as Status FROM servicos")
@@ -200,22 +140,48 @@ elif menu == "Pesquisar / Filtrar":
         if f_placa: df = df[df['Placa'].astype(str).str.contains(f_placa, case=False, na=False)]
         if f_st: df = df[df['Status'].isin(f_st)]
         st.dataframe(df.sort_values('OS', ascending=False), use_container_width=True)
-        st.caption(f"{len(df)} OS | Faturamento filtrado: R$ {df['Valor'].sum():.2f} | Ticket Médio filtrado: R$ {df['Valor'].mean():.2f}")
-        buf = io.BytesIO(); df.to_excel(buf, index=False)
-        st.download_button("📥 Excel Filtrado", buf.getvalue(), "os_filtradas.xlsx")
-        acoes_completas(df)
+        st.caption(f"{len(df)} OS | Faturamento: R$ {df['Valor'].sum():.2f} | Ticket Médio: R$ {df['Valor'].mean():.2f}")
+
+        # AÇÕES COM WHATSAPP E PDF + EDITAR/DELETAR
+        st.divider()
+        os_sel = st.selectbox("Selecione OS para ações", df['OS'].tolist())
+        dados = query_df("SELECT * FROM servicos WHERE id=?", (int(os_sel),))
+        if not dados.empty:
+            d = dados.iloc[0]
+            zap_limpo = ''.join(filter(str.isdigit, str(d['telefone'])))
+            msg = f"Ola {d['cliente']}! OS #{d['id']} {d['placa']} Status {d['status']} R$ {float(d['valor'] or 0):.2f}"
+            link_zap = f"https://wa.me/55{zap_limpo}?text={msg.replace(' ', '%20')}"
+            c1,c2,c3,c4 = st.columns(4)
+            c1.link_button("📱 WhatsApp", link_zap, use_container_width=True)
+            pdf_b = gerar_pdf_os(d['id'], d['cliente'], d['telefone'], d['placa'], d['descricao'], d['valor'], d['data_entrada'], d['status'])
+            c2.download_button("📄 PDF", pdf_b, file_name=f"OS_{d['id']}.pdf", mime="application/pdf", use_container_width=True)
+            if c3.button(f"✏️ Editar #{os_sel}", use_container_width=True):
+                st.session_state.edit_id = int(os_sel)
+            if c4.button(f"🗑️ Deletar #{os_sel}", type="primary", use_container_width=True):
+                cur.execute("DELETE FROM servicos WHERE id=?", (int(os_sel),))
+                conn.commit()
+                st.success("Deletada!"); st.rerun()
+            if st.session_state.edit_id == int(os_sel):
+                with st.form(f"edit_{os_sel}"):
+                    nome = st.text_input("Cliente", value=d['cliente'])
+                    zap = st.text_input("WhatsApp", value=d['telefone'])
+                    placa = st.text_input("Placa", value=str(d['placa'] or ""))
+                    valor = st.number_input("Valor", value=float(d['valor'] or 0))
+                    desc = st.text_area("Serviço", value=d['descricao'])
+                    status = st.selectbox("Status", ["Aberta","Em andamento","Pronta","Entregue","Cancelada"])
+                    if st.form_submit_button("💾 SALVAR"):
+                        cur.execute("UPDATE servicos SET cliente=?, telefone=?, descricao=?, valor=?, status=?, placa=? WHERE id=?",(nome, zap, desc, valor, status, placa, int(os_sel)))
+                        conn.commit()
+                        st.session_state.edit_id=None
+                        st.rerun()
 
 elif menu == "Clientes":
     df_serv = query_df("SELECT cliente as Cliente, telefone as WhatsApp, SUM(valor) as total_gasto, COUNT(*) as qtd, AVG(valor) as ticket_medio FROM servicos GROUP BY cliente, telefone")
     if not df_serv.empty:
-        st.subheader("Clientes com Valores (Total Gasto + Ticket Médio)")
+        st.subheader("Clientes com Valores")
         st.dataframe(df_serv.sort_values('total_gasto', ascending=False), use_container_width=True)
         buf = io.BytesIO(); df_serv.to_excel(buf, index=False)
         st.download_button("📥 Excel CLIENTES com Valores", buf.getvalue(), "clientes_com_valores.xlsx")
-    df_s = query_df("SELECT * FROM servicos")
-    if not df_s.empty:
-        buf2 = io.BytesIO(); df_s.to_excel(buf2, index=False)
-        st.download_button("📥 Excel SERVIÇOS Feitos", buf2.getvalue(), "servicos.xlsx")
 
 elif menu == "Backup":
     df1 = query_df("SELECT * FROM clientes")
