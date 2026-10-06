@@ -67,8 +67,29 @@ def gerar_pdf_os(os_id, cliente, zap, placa, servico, valor, data_e, status):
     pdf.ln(10)
     pdf.set_font("Arial", "", 10)
     pdf.cell(0, 8, "Assinatura Cliente: ___________________________", ln=True)
-    return pdf.output(dest='S').encode('latin-1')
-
+def gerar_pdf_os(os_id, cliente, zap, placa, servico, valor, data_e, status):
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Arial", "B", 16)
+    pdf.cell(0, 10, "OFICINA CARUARU - ORDEM DE SERVICO", new_x="LMARGIN", new_y="NEXT", align="C")
+    pdf.set_font("Arial", "", 12)
+    pdf.ln(10)
+    pdf.cell(0, 8, f"OS N: {os_id} | Data: {data_e} | Status: {status}", new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(0, 8, f"Cliente: {cliente}", new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(0, 8, f"WhatsApp: {zap} | Placa: {placa}", new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(5)
+    pdf.set_font("Arial", "B", 12)
+    pdf.cell(0, 8, "Descricao do Servico:", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_font("Arial", "", 12)
+    pdf.multi_cell(0, 8, str(servico))
+    pdf.ln(5)
+    pdf.set_font("Arial", "B", 14)
+    pdf.cell(0, 10, f"Valor: R$ {float(valor):.2f}", new_x="LMARGIN", new_y="NEXT")
+    # CORRIGIDO - fpdf2 novo já retorna bytes
+    out = pdf.output()
+    if isinstance(out, str):
+        return out.encode('latin-1')
+    return bytes(out)
 st.set_page_config(page_title="Oficina Caruaru", layout="wide")
 st.title("🏍️ Oficina Caruaru - OS")
 if "edit_id" not in st.session_state: st.session_state.edit_id = None
