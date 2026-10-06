@@ -2,7 +2,6 @@ import streamlit as st, pandas as pd, re
 from urllib.parse import quote
 from fpdf import FPDF
 from datetime import date, timedelta
-import libsql_experimental as libsql
 
 st.set_page_config(page_title="Oficina Caruaru", layout="wide")
 
